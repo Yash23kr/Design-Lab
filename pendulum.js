@@ -395,6 +395,7 @@ var grabPointNr = -1;
 var grabPoint = { pos : new Vector(), invMass : 0, vel : new Vector() };
 var maxGrabDist = 0.5;
 var prevConserveEnergy = conserveEnergy;
+var grabMouseObstacleIdx = -1;
 
 function onMouse(evt) {
     evt.preventDefault();
@@ -402,18 +403,21 @@ function onMouse(evt) {
     var mousePos = new Vector(
         ((evt.clientX - rect.left) - canvasOrig.x) / drawScale,
         (canvasOrig.y - (evt.clientY - rect.top)) / drawScale);
-    var grabMouseObstacleIdx = -1;
-    for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
-        var d2Obs = mousePos.distSquared(obstacles[obsIdx].pos);
-        if (d2Obs < obstacles[obsIdx].radius * obstacles[obsIdx].radius) {
-            grabMouseObstacleIdx = obsIdx;
-            break;
-        }
-    }
+    
     if (evt.type == "mousedown") {
-        if (grabMouseObstacleIdx >= 0) {
-            obstacles[grabMouseObstacleIdx].isDragging = true;
-        } else {
+        // Check if clicking on an obstacle
+        grabMouseObstacleIdx = -1;
+        for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
+            var d2Obs = mousePos.distSquared(obstacles[obsIdx].pos);
+            if (d2Obs < obstacles[obsIdx].radius * obstacles[obsIdx].radius * 4) {
+                grabMouseObstacleIdx = obsIdx;
+                obstacles[obsIdx].isDragging = true;
+                canvas.style.cursor = "grabbing";
+                break;
+            }
+        }
+        // If no obstacle grabbed, try to grab a pendulum point
+        if (grabMouseObstacleIdx < 0) {
             grabPointNr = -1;
             var minGrabDist2 = maxGrabDist * maxGrabDist;
             for (i = 1; i < numPoints; i++) {
@@ -427,20 +431,30 @@ function onMouse(evt) {
             }
         }
     } else if (evt.type == "mousemove") {
-        if (grabMouseObstacleIdx >= 0) {
-            canvas.style.cursor = "pointer";
-        } else if (grabPointNr < 0) {
-            canvas.style.cursor = "default";
-        }
+        // Move obstacle if currently dragging
         if (grabMouseObstacleIdx >= 0) {
             obstacles[grabMouseObstacleIdx].pos.assign(mousePos);
+            canvas.style.cursor = "grabbing";
         } else if (grabPointNr >= 0) {
             grabPoint.pos.assign(mousePos);
+            canvas.style.cursor = "grabbing";
+        } else {
+            // Check if hovering over an obstacle
+            var hoveringObstacle = false;
+            for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
+                var d2Obs = mousePos.distSquared(obstacles[obsIdx].pos);
+                if (d2Obs < obstacles[obsIdx].radius * obstacles[obsIdx].radius * 4) {
+                    hoveringObstacle = true;
+                    break;
+                }
+            }
+            canvas.style.cursor = hoveringObstacle ? "grab" : "default";
         }
     } else if (evt.type == "mouseup" || evt.type == "mouseout") {
-        for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
-            obstacles[obsIdx].isDragging = false;
+        if (grabMouseObstacleIdx >= 0) {
+            obstacles[grabMouseObstacleIdx].isDragging = false;
         }
+        grabMouseObstacleIdx = -1;
         grabPointNr = -1;
         canvas.style.cursor = "default";
     }
