@@ -12,10 +12,13 @@ var edgeDampingCoeff = 0;
 var globalDampingCoeff = 0;
 
 var conserveEnergy = false;
-var collisionHandling = false;
 var showTrail = false;
 var showForces = false;
 var maxPoints = 3;
+
+var numObstacles = 1;
+var obstacles = [];
+var obstacleRadius = 0.05;
 
 var maxTrailLen = 1000;
 var trailDist = 0.01;
@@ -53,6 +56,13 @@ document.getElementById("globalDampingSlider").oninput = function() {
 	var coeff = coeffs[Number(this.value)];
 	globalDampingCoeff = Number(coeff);        
 	document.getElementById("globalDamping").innerHTML = coeff;
+}
+
+document.getElementById("obstaclesSlider").oninput = function() {
+	numObstacles = Number(this.value);
+	document.getElementById("numObstacles").innerHTML = numObstacles;
+	generateObstacles(numObstacles);
+	resetPos(false);
 }
  
 // update mass directly from numeric input
@@ -104,7 +114,6 @@ for (var idx = 0; idx < radiusIds.length; idx++) {
 }
 
 function onEnergy() { conserveEnergy = !conserveEnergy; resetPos(false); }
-function onCollision() { collisionHandling = !collisionHandling; resetPos(false); }
 // function onTrail() { showTrail = !showTrail; trail = []; trailLast = 0; }
 function onForces() { showForces = !showForces; }
 function onUnilateral(nr) { points[nr].unilateral = !points[nr].unilateral; }
@@ -132,7 +141,42 @@ class Vector {
 var trailLast = 0;
 var trail = [];
 
-var bumper = { pos: new Vector(0.4, -0.6), radius: 0.05 };
+function generateObstacles(numObs) {
+    obstacles = [];
+    var minDist = obstacleRadius * 2.5;
+    var attempts = 0;
+    var maxAttempts = 100;
+    
+    for (var i = 0; i < numObs && attempts < maxAttempts; i++) {
+        var pos = new Vector();
+        var side = Math.floor(Math.random() * 2);
+        
+        if (side === 0) {
+            pos.x = -0.8 + Math.random() * 0.2;
+        } else {
+            pos.x = 0.6 + Math.random() * 0.2;
+        }
+        pos.y = -0.3 + Math.random() * 0.8;
+        
+        var overlaps = false;
+        for (var j = 0; j < obstacles.length; j++) {
+            var dx = pos.x - obstacles[j].pos.x;
+            var dy = pos.y - obstacles[j].pos.y;
+            var dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < minDist) {
+                overlaps = true;
+                attempts++;
+                i--;
+                break;
+            }
+        }
+        
+        if (!overlaps) {
+            obstacles.push({ pos: pos, radius: obstacleRadius, isDragging: false });
+            attempts = 0;
+        }
+    }
+}
 
 function trailAdd(p) {
     if (trail.length == 0)
@@ -250,10 +294,15 @@ function draw() {
         }
         c.stroke(); c.strokeStyle="#000000";
     }
-    c.fillStyle=bumper.isDragging?"#FF8000":"#FF0000";
-    c.beginPath();
-    c.arc(canvasOrig.x+bumper.pos.x*drawScale, canvasOrig.y-bumper.pos.y*drawScale, bumper.radius*drawScale,0,Math.PI*2);
-    c.fill(); c.strokeStyle="#000000"; c.stroke();
+    for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
+        var obs = obstacles[obsIdx];
+        c.fillStyle = obs.isDragging ? "#FF8000" : "#FF0000";
+        c.beginPath();
+        c.arc(canvasOrig.x + obs.pos.x * drawScale, canvasOrig.y - obs.pos.y * drawScale, obs.radius * drawScale, 0, Math.PI * 2);
+        c.fill();
+        c.strokeStyle = "#000000";
+        c.stroke();
+    }
 }
 
 // simulation helpers
@@ -290,8 +339,8 @@ function simulate(dt){
         for(i=1;i<numPoints;i++){p=points[i];p.vel.y-=gravity*sdt;p.prev.assign(p.pos);p.pos.add(p.vel,sdt);}        
         for(i=0;i<numPoints-1;i++){p=points[i+1];solveDistPos(points[i],p,p.radius,p.compliance,p.unilateral,sdt);}        
         if(grabPointNr>=0) solveDistPos(grabPoint,points[grabPointNr],0,mouseCompliance,false,sdt);
-        if(collisionHandling){
-            for(i=1;i<numPoints;i++){var p=points[i];var diff=p.pos.minus(bumper.pos);var distSq=diff.x*diff.x+diff.y*diff.y;var r=bumper.radius;
+        for(var obsIdx=0;obsIdx<obstacles.length;obsIdx++){var bumper=obstacles[obsIdx];var r=bumper.radius;
+            for(i=1;i<numPoints;i++){var p=points[i];var diff=p.pos.minus(bumper.pos);var distSq=diff.x*diff.x+diff.y*diff.y;
                 if(distSq<r*r){var dist=Math.sqrt(distSq);var n=new Vector();
                     if(dist>1e-8){n.x=diff.x/dist;n.y=diff.y/dist;}else{var vStep=p.pos.minus(p.prev);if(vStep.lenSquared()>1e-12){n.assign(vStep);n.normalize();}else{n.x=1.0;n.y=0.0;}dist=0.0;}
                     var penetration=r-dist;p.pos.add(n,penetration);var v=p.pos.minus(p.prev);var vn=n.dot(v);if(vn<0){v.add(n,-2*vn);p.prev.assign(p.pos.minus(v));}}}
@@ -353,10 +402,17 @@ function onMouse(evt) {
     var mousePos = new Vector(
         ((evt.clientX - rect.left) - canvasOrig.x) / drawScale,
         (canvasOrig.y - (evt.clientY - rect.top)) / drawScale);
-    var d2Bumper = mousePos.distSquared(bumper.pos);
+    var grabMouseObstacleIdx = -1;
+    for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
+        var d2Obs = mousePos.distSquared(obstacles[obsIdx].pos);
+        if (d2Obs < obstacles[obsIdx].radius * obstacles[obsIdx].radius) {
+            grabMouseObstacleIdx = obsIdx;
+            break;
+        }
+    }
     if (evt.type == "mousedown") {
-        if (d2Bumper < bumper.radius * bumper.radius) {
-            bumper.isDragging = true;
+        if (grabMouseObstacleIdx >= 0) {
+            obstacles[grabMouseObstacleIdx].isDragging = true;
         } else {
             grabPointNr = -1;
             var minGrabDist2 = maxGrabDist * maxGrabDist;
@@ -371,18 +427,20 @@ function onMouse(evt) {
             }
         }
     } else if (evt.type == "mousemove") {
-        if (d2Bumper < bumper.radius * bumper.radius) {
+        if (grabMouseObstacleIdx >= 0) {
             canvas.style.cursor = "pointer";
-        } else if (!bumper.isDragging && grabPointNr < 0) {
+        } else if (grabPointNr < 0) {
             canvas.style.cursor = "default";
         }
-        if (bumper.isDragging) {
-            bumper.pos.assign(mousePos);
+        if (grabMouseObstacleIdx >= 0) {
+            obstacles[grabMouseObstacleIdx].pos.assign(mousePos);
         } else if (grabPointNr >= 0) {
             grabPoint.pos.assign(mousePos);
         }
     } else if (evt.type == "mouseup" || evt.type == "mouseout") {
-        bumper.isDragging = false;
+        for (var obsIdx = 0; obsIdx < obstacles.length; obsIdx++) {
+            obstacles[obsIdx].isDragging = false;
+        }
         grabPointNr = -1;
         canvas.style.cursor = "default";
     }
@@ -394,6 +452,8 @@ canvas.addEventListener("mouseup", onMouse);
 canvas.addEventListener("mouseout", onMouse);
 
 // main
+// generate initial obstacles
+generateObstacles(numObstacles);
 // set initial masses and radii based on the numeric inputs
 for (var i = 1; i <= numPoints; i++) {
     var mElem = document.getElementById("mass" + i + "Input");

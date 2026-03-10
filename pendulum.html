@@ -92,11 +92,17 @@
                 <label><input type="checkbox" onclick="onEnergy()"> Enforce energy conservation</label>
             </div>
             <div class="inline-checkbox-row">
-                <label><input type="checkbox" onclick="onCollision()"> Collision handling</label>
-            </div>
-            <div class="inline-checkbox-row">
                 <!-- <label><input type="checkbox" onclick="onTrail()" checked> Show trail</label> -->
                 <label><input type="checkbox" onclick="onForces()"> Force &amp; acceleration labels</label>
+            </div>
+        </div>
+
+        <div class="controls-section">
+            <div class="controls-section-title">Obstacles</div>
+            <div class="control-row">
+                <label for="obstaclesSlider">Number of obstacles</label>
+                <input type="range" min="1" max="10" value="1" id="obstaclesSlider" class="slider">
+                <span id="numObstacles" class="value-pill">1</span>
             </div>
         </div>
     </div>
