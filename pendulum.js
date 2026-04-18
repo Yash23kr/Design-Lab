@@ -14,11 +14,12 @@ var globalDampingCoeff = 0;
 var conserveEnergy = false;
 var showTrail = false;
 var showForces = false;
-var maxPoints = 3;
 
 var numObstacles = 1;
 var obstacles = [];
 var obstacleRadius = 0.05;
+
+var maxPoints = 4;
 
 var maxTrailLen = 1000;
 var trailDist = 0.01;
@@ -96,8 +97,8 @@ function updateMassTable() {
 }
 
 // hook up the new number inputs
-var massIds = ["mass1Input","mass2Input"];
-var radiusIds = ["radius1Input","radius2Input"];
+var massIds = ["mass1Input","mass2Input","mass3Input"];
+var radiusIds = ["radius1Input","radius2Input","radius3Input"];
 for (var idx = 0; idx < massIds.length; idx++) {
     (function(i) {
         document.getElementById(massIds[i]).oninput = function() {
