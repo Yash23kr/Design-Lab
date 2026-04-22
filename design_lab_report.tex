@@ -1,0 +1,260 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{fancyhdr}
+\usepackage{listings}
+\usepackage{xcolor}
+
+\lstset{
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{blue},
+    stringstyle=\color{red},
+    commentstyle=\color{green!60!black},
+    breaklines=true,
+    frame=single,
+    backgroundcolor=\color{gray!10}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{Pendulum Simulation Documentation}
+\lhead{Design Lab}
+\cfoot{\thepage}
+
+\title{\textbf{Interactive Multi-Link Pendulum Simulator}\\
+\large Quick Reference Guide}
+\author{Yash Kumar \\ 21CS30059}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+\section{Overview}
+
+Interactive physics-based pendulum simulator (1-3 links). Uses eXtended Position-Based Dynamics (XPBD) for constraints, collision detection, and optional energy conservation.
+
+\section{Core Physics}
+
+Time-stepping with gravity and constraint solving. 50 substeps per frame at 1/60 s.
+
+\subsection{Gravity and Position Update}
+
+\begin{align}
+\vec{v}_i &\leftarrow \vec{v}_i + (0, -10) \Delta t \\
+\vec{x}_i &\leftarrow \vec{x}_i + \vec{v}_i \Delta t
+\end{align}
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, line 340):
+\begin{lstlisting}[language=JavaScript]
+for(i=1;i<numPoints;i++){
+    p=points[i];
+    p.vel.y-=gravity*sdt;
+    p.prev.assign(p.pos);
+    p.pos.add(p.vel,sdt);
+}
+\end{lstlisting}
+
+\subsection{Distance Constraints (XPBD)}
+
+Links maintain fixed length $L$: \quad $\|\vec{x}_1 - \vec{x}_0\| = L$
+
+Constraint force with Lagrange multiplier $\lambda$:
+\begin{equation}
+\lambda = -\frac{C(\vec{x})}{w_0 + w_1 + \alpha/\Delta t^2}
+\end{equation}
+
+Corrections (weighted by inverse mass $w=1/m$):
+\begin{equation}
+\vec{x}_i \leftarrow \vec{x}_i \pm w_i \lambda \vec{n}
+\end{equation}
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, lines 310-322):
+\begin{lstlisting}[language=JavaScript]
+function solveDistPos(p0,p1,d0,compliance,unilateral,dt){
+    var w=p0.invMass+p1.invMass;
+    if(w==0) return;
+    var grad=p1.pos.minus(p0.pos);
+    var d=grad.normalize();
+    w+=compliance/dt/dt;
+    var lambda=(d-d0)/w;
+    if(lambda<0&&unilateral) return;
+    p1.force=lambda/dt/dt;
+    p1.elongation=d-d0;
+    p0.pos.add(grad,p0.invMass*lambda);
+    p1.pos.add(grad,-p1.invMass*lambda);
+}
+\end{lstlisting}
+
+\subsection{Damping}
+
+Edge damping: reduces motion along links (0.0, 10.0, 100.0 Ns/m)
+
+Global damping: reduces overall motion (0.0, 0.5, 1.0, 2.0 Ns/m)
+
+\subsection{Collisions}
+
+Elastic reflection: $\vec{v}_{\text{new}} = \vec{v} - 2(\vec{n} \cdot \vec{v})\vec{n}$
+
+Detects point-obstacle and link-obstacle collisions.
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, velocities update on line 347):
+\begin{lstlisting}[language=JavaScript]
+var v=p.pos.minus(p.prev);
+var vn=n.dot(v);
+if(vn<0){
+    v.add(n,-2*vn);
+    p.prev.assign(p.pos.minus(v));
+}
+\end{lstlisting}
+
+\subsection{Energy Conservation}
+
+When enabled, rescales velocities to maintain:
+\begin{equation}
+E = \sum_i \left( m_i g y_i + \frac{1}{2}m_i v_i^2 \right) = \text{constant}
+\end{equation}
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, lines 356-357):
+\begin{lstlisting}[language=JavaScript]
+function computeEnergy(){
+    var E=0;
+    for(i=1;i<numPoints;i++){
+        p=points[i];
+        E+=p.pos.y/p.invMass*gravity+0.5/p.invMass*p.vel.lenSquared();
+    }
+    return E;
+}
+function forceEnergyConservation(prevE){
+    var dE=(computeEnergy()-prevE)/(numPoints-1);
+    if(dE<0){
+        var postE=computeEnergy();
+        for(i=1;i<numPoints;i++){
+            p=points[i];
+            var Ek=0.5/p.invMass*p.vel.lenSquared();
+            var s=Math.sqrt((Ek-dE)/Ek);
+            p.vel.scale(s);
+        }
+    }
+}
+\end{lstlisting}
+
+\section{Key Parameters}
+
+\begin{center}
+\small
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value/Range} \\
+\hline
+Substeps per frame & 50 \\
+Frame time step & 1/60 s \\
+Gravity & 10 m/s$^2$ \\
+Default mass & 1.0 kg \\
+Default link length & 0.3 m \\
+Max links & 3 \\
+Max obstacles & 10 \\
+Edge damping & 0, 10, 100 Ns/m \\
+Global damping & 0, 0.5, 1.0, 2.0 Ns/m \\
+\hline
+\end{tabular}
+\end{center}
+
+\section{Controls}
+
+\subsection{Main Buttons}
+
+\begin{itemize}
+\item \textbf{Restart}: Reset to cascading position
+\item \textbf{Equilibrium}: Reset to hanging straight down
+\item \textbf{Pause/Step}: Toggle pause; step one frame when paused
+\item \textbf{Run}: Resume simulation
+\end{itemize}
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, lines 391-392):
+\begin{lstlisting}[language=JavaScript]
+function step() { paused = true; timeStep(); }
+function run() { if (paused) { paused = false; timeStep(); } }
+\end{lstlisting}
+
+\subsection{Configuration}
+
+\textbf{Number of Links} (1-3): Adjusts active links; updates mass table automatically.
+
+\textbf{Mass Table}: For each link set mass (0.001-10 kg) and length (0.2-1.0 m). Checkbox enables unilateral (rope) constraint.
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, lines 41-46):
+\begin{lstlisting}[language=JavaScript]
+document.getElementById("segsSlider").oninput = function() {
+    numPoints = Number(this.value) + 1;
+    document.getElementById("numSegs").innerHTML = this.value;
+    resetPos(false);
+    updateMassTable();
+}
+\end{lstlisting}
+
+\subsection{Physics Controls}
+
+\begin{itemize}
+\item \textbf{Edge Damping}: Reduces link oscillation
+\item \textbf{Global Damping}: Causes system to settle
+\item \textbf{Energy Conservation}: Maintains constant total energy
+\item \textbf{Show Trail}: Red path of last point
+\item \textbf{Show Forces}: Red force, blue acceleration vectors
+\end{itemize}
+
+\subsection{Obstacles}
+
+Add 1-10 circular obstacles. Click and drag to reposition. Turn orange when dragged.
+
+\subsection{Mouse Interaction}
+
+Click and drag pendulum points or obstacles to control them manually.
+
+\noindent\textbf{Implementation Snippet} (\texttt{pendulum.js}, lines 464-467):
+\begin{lstlisting}[language=JavaScript]
+canvas.addEventListener("mousedown", onMouse);
+canvas.addEventListener("mousemove", onMouse);
+canvas.addEventListener("mouseup", onMouse);
+canvas.addEventListener("mouseout", onMouse);
+\end{lstlisting}
+
+\section{Quick Examples}
+
+\subsection{Simple Pendulum}
+
+Links: 1, disable damping, enable energy conservation. Click Restart.
+
+\subsection{Double Pendulum Chaos}
+
+Links: 2 (0.4 m, 0.3 m), disable damping. Run multiple times with small position variations.
+
+\subsection{Damped Motion}
+
+Links: 2, global damping 2.0. Compare settling with vs. without damping.
+
+\section{Technical Details}
+
+Per substep: apply gravity → satisfy constraints → detect collisions → apply damping → recompute velocities. 50 substeps per frame.
+
+Canvas: 500$\times$500 px representing 2.0 m wide world. Scaling: 250 px/meter.
+
+\section{Troubleshooting}
+
+\begin{itemize}
+\item \textbf{Too slow}: Reduce obstacles
+\item \textbf{Points escape}: Check mass values; reduce compliance
+\item \textbf{Constraints elastic}: Reduce damping
+\item \textbf{Bad collisions}: Increase damping or enable energy conservation
+\end{itemize}
+
+\section{Conclusion}
+
+Experiment with different configurations to explore classical mechanics, chaos, damping, constraints, and energy conservation.
+
+\end{document}
